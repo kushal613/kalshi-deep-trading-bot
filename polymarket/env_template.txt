@@ -1,0 +1,104 @@
+# Polymarket Deep Trading Bot Environment Configuration
+# Copy this file to .env and fill in your API credentials
+
+# =============================================================================
+# POLYMARKET API CONFIGURATION
+# =============================================================================
+
+# Polymarket API credentials (optional - bot works without API key)
+POLYMARKET_API_KEY=your_polymarket_api_key_here
+
+# Polymarket network configuration
+POLYMARKET_USE_MAINNET=true
+POLYMARKET_BASE_URL=https://gamma-api.polymarket.com
+
+# Private key for live trading (REQUIRED for live trading mode)
+# Format: POLYMARKET_PRIVATE_KEY=0x1234567890abcdef...
+POLYMARKET_PRIVATE_KEY=your_polymarket_private_key_here
+
+# =============================================================================
+# OCTAGON DEEP RESEARCH API CONFIGURATION
+# =============================================================================
+
+# Octagon API credentials
+OCTAGON_API_KEY=your_octagon_api_key_here
+OCTAGON_BASE_URL=https://api.octagon.ai
+
+# =============================================================================
+# OPENAI API CONFIGURATION
+# =============================================================================
+
+# OpenAI API for structured betting decisions
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o
+
+# =============================================================================
+# BOT CONFIGURATION
+# =============================================================================
+
+# Market processing limits
+MAX_BET_AMOUNT=100.0
+
+# Market analysis configuration
+MAX_MARKETS_TO_ANALYZE=50      # Number of top markets to analyze by volume
+RESEARCH_BATCH_SIZE=10         # Number of parallel deep research requests (1-20 recommended)
+SKIP_EXISTING_POSITIONS=true   # Skip betting on markets where we already have positions
+MINIMUM_LIQUIDITY=1000.0       # Minimum liquidity required for a market
+
+# Risk management / hedging configuration
+ENABLE_HEDGING=true           # Enable hedging to minimize risk and protect downside
+HEDGE_RATIO=0.25              # Default hedge ratio (0.25 = hedge 25% of main bet on opposite side)
+MIN_CONFIDENCE_FOR_HEDGING=0.6 # Only hedge bets with confidence below this threshold (0.6 = hedge when confidence < 60%)
+MAX_HEDGE_AMOUNT=50.0         # Maximum hedge amount per bet in dollars
+
+# Risk-adjusted trading parameters
+Z_THRESHOLD=1.5               # Minimum R-score (z-score) threshold for placing bets
+ENABLE_KELLY_SIZING=true      # Use Kelly criterion for position sizing
+KELLY_FRACTION=0.5            # Fraction of Kelly to use (0.5 = half-Kelly)
+MAX_KELLY_BET_FRACTION=0.1    # Maximum fraction of bankroll per bet
+BANKROLL=1000.0               # Total bankroll for Kelly sizing calculations
+
+# Portfolio management
+MAX_PORTFOLIO_POSITIONS=10    # Maximum number of positions to hold simultaneously
+PORTFOLIO_SELECTION_METHOD=top_r_scores  # Method for portfolio selection
+
+# =============================================================================
+# SETUP INSTRUCTIONS
+# =============================================================================
+
+# 1. Get Polymarket API credentials (optional):
+#    - Go to https://polymarket.com
+#    - Sign up for an account
+#    - Generate API key if needed (bot works without API key in simulation mode)
+
+# 2. Get Octagon API key:
+#    - Contact Octagon team for API access
+#    - Replace OCTAGON_API_KEY with your actual key
+
+# 3. Get OpenAI API key:
+#    - Go to https://platform.openai.com/api-keys
+#    - Create a new API key
+#    - Ensure you have access to GPT-4 models
+
+# 4. For live trading (optional):
+#    - Get your wallet private key
+#    - Set POLYMARKET_PRIVATE_KEY (REQUIRED for live trading)
+#    - Ensure you have USDC in your wallet for trading
+
+# 5. Test setup:
+#    - Start with dry run mode (default)
+#    - Test with small MAX_MARKETS_TO_ANALYZE (5-10) first
+#    - Only use live trading after thorough testing
+
+# =============================================================================
+# RECOMMENDED TESTING FLOW
+# =============================================================================
+
+# Phase 1: Dry Run Testing
+# DRY_RUN=true, MAX_MARKETS_TO_ANALYZE=5
+
+# Phase 2: Live Trading (with private key)
+# DRY_RUN=false, MAX_MARKETS_TO_ANALYZE=10
+
+# Phase 3: Full Scale
+# DRY_RUN=false, MAX_MARKETS_TO_ANALYZE=50
