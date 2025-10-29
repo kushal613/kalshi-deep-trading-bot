@@ -16,18 +16,18 @@ This bot follows the same architecture as the Kalshi Deep Trading Bot but adapts
 
 ## Key Features
 
-### 🤖 AI-Powered Analysis
+### AI-Powered Analysis
 - **Octagon Deep Research**: Market analysis and probability predictions
 - **OpenAI GPT-4**: Structured betting decision making
 - **Automatic Probability Extraction**: Converts research text to structured data
 
-### 📊 Sophisticated Risk Management
+### Sophisticated Risk Management
 - **R-score Filtering**: Only bets on statistically significant opportunities (z-score ≥ 1.5)
 - **Kelly Criterion**: Optimal position sizing based on edge and risk
 - **Portfolio Limits**: Maximum number of simultaneous positions
 - **Hedging**: Automatic hedge positions for risk management
 
-### 🛡️ Safety Features
+### Safety Features
 - **Dry Run Mode**: Test strategies without placing real bets
 - **Simulation Mode**: Works without API keys or private keys
 - **Liquidity Filtering**: Only trades markets with sufficient liquidity
@@ -131,7 +131,7 @@ The bot uses **hedge-fund style risk management**:
 
 ## Safety & Risk Management
 
-⚠️ **Important Disclaimers**
+**Important Disclaimers**
 
 - **Educational/Research Only**: This software is for educational purposes
 - **No Financial Advice**: All decisions are automated algorithms
