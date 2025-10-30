@@ -64,9 +64,9 @@ class PolymarketMarketFetcher:
                     processed_market = self._process_market_data(market)
                     if processed_market:
                         processed_markets.append(processed_market)
-                # Best-effort: enrich a subset with live quotes to get real bids/asks
+                # Enrich ALL processed markets on this page with live quotes (best effort)
                 try:
-                    await self._attach_live_quotes(processed_markets[: min(50, len(processed_markets))])
+                    await self._attach_live_quotes(processed_markets)
                 except Exception:
                     pass
                 
@@ -98,10 +98,11 @@ class PolymarketMarketFetcher:
             market_id = m.get("market_id")
             if not market_id:
                 return
+            # Prefer compact prices endpoint first, then full book fallbacks
             endpoints = [
+                f"https://clob.polymarket.com/prices?market={market_id}",
                 f"https://clob.polymarket.com/book?market={market_id}",
                 f"https://clob.polymarket.com/markets/{market_id}/book",
-                f"https://clob.polymarket.com/prices?market={market_id}",
             ]
             best_bid = None
             best_ask = None
@@ -112,21 +113,10 @@ class PolymarketMarketFetcher:
                         if resp.status_code != 200:
                             continue
                         data = resp.json()
-                        # Try common book schema
+                        # Try common schemas
                         if isinstance(data, dict):
-                            bids = data.get("bids") or []
-                            asks = data.get("asks") or []
-                            if bids:
-                                try:
-                                    best_bid = max(float(b.get("price", 0)) for b in bids)
-                                except Exception:
-                                    pass
-                            if asks:
-                                try:
-                                    best_ask = min(float(a.get("price", 1)) for a in asks if a.get("price") is not None)
-                                except Exception:
-                                    pass
-                            if best_bid is None and "prices" in data:
+                            # prices schema: { prices: { YES: {bid,ask}, NO: {...} } }
+                            if "prices" in data and isinstance(data.get("prices"), dict):
                                 p = data.get("prices", {})
                                 y = p.get("YES") or p.get("Up")
                                 if isinstance(y, dict):
@@ -135,6 +125,19 @@ class PolymarketMarketFetcher:
                                         best_ask = float(y.get("ask", 0)) or best_ask
                                     except Exception:
                                         pass
+                            # order book schema: bids/asks arrays
+                            bids = data.get("bids") or []
+                            asks = data.get("asks") or []
+                            if bids:
+                                try:
+                                    best_bid = max(float(b.get("price", 0)) for b in bids if b.get("price") is not None)
+                                except Exception:
+                                    pass
+                            if asks:
+                                try:
+                                    best_ask = min(float(a.get("price", 1)) for a in asks if a.get("price") is not None)
+                                except Exception:
+                                    pass
                         elif isinstance(data, list) and data:
                             # List of orders
                             bids = [float(x.get("price", 0)) for x in data if str(x.get("side", "")).lower() == "bid"]
@@ -164,9 +167,10 @@ class PolymarketMarketFetcher:
         """Fetch a single page of markets from Polymarket API."""
         # Try multiple endpoints
         endpoints = [
+            # Prefer markets endpoint with active filters to retrieve bestBid/bestAsk
+            f"https://gamma-api.polymarket.com/markets?active=true&closed=false&limit={limit}&offset={page * limit}",
             f"https://gamma-api.polymarket.com/events?order=id&ascending=false&closed=false&limit={limit}&offset={page * limit}",
             f"https://gamma-api.polymarket.com/markets?limit={limit}&offset={page * limit}",
-            f"https://gamma-api.polymarket.com/events?limit={limit}&offset={page * limit}"
         ]
         
         for endpoint in endpoints:
@@ -325,7 +329,7 @@ class PolymarketMarketFetcher:
             yes_mid = yes_price
             no_mid = no_price
 
-            # Use best bid/ask for YES if available; derive NO from parity
+            # Use top-of-book for YES if available; derive NO from parity
             raw_best_bid = market.get("bestBid")
             raw_best_ask = market.get("bestAsk")
             def _safe_float(x):
@@ -335,22 +339,16 @@ class PolymarketMarketFetcher:
                     return None
             best_bid = _safe_float(raw_best_bid)
             best_ask = _safe_float(raw_best_ask)
-            if best_bid is not None and 0 < best_bid < 1:
-                yes_bid = best_bid
-            else:
-                yes_bid = yes_mid
-            if best_ask is not None and 0 < best_ask < 1:
-                yes_ask = best_ask
-            else:
-                yes_ask = yes_mid
+            yes_bid = best_bid if (best_bid is not None and 0 < best_bid < 1) else None
+            yes_ask = best_ask if (best_ask is not None and 0 < best_ask < 1) else None
             # Binary parity to approximate NO side
-            no_bid = max(0.0, min(1.0, 1.0 - yes_ask))
-            no_ask = max(0.0, min(1.0, 1.0 - yes_bid))
+            no_bid = max(0.0, min(1.0, 1.0 - yes_ask)) if yes_ask is not None else None
+            no_ask = max(0.0, min(1.0, 1.0 - yes_bid)) if yes_bid is not None else None
             
             # Calculate days to expiry
             days_to_expiry = self._calculate_days_to_expiry(end_date)
             
-            return {
+            result = {
                 "market_id": market_id,
                 "question": question,
                 "description": description,
@@ -358,6 +356,7 @@ class PolymarketMarketFetcher:
                 "volume": volume,
                 "liquidity": liquidity,
                 "active": active,
+                # Include top-of-book if present
                 "yes_bid": yes_bid,
                 "no_bid": no_bid,
                 "yes_ask": yes_ask,
@@ -368,6 +367,7 @@ class PolymarketMarketFetcher:
                 "outcomes": outcomes,
                 "raw_data": market
             }
+            return result
             
         except Exception as e:
             logger.warning(f"Error processing market data: {e}")

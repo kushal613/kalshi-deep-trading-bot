@@ -78,17 +78,26 @@ def pick_top_candidates(kalshi_title: str, polymarkets: List[Dict[str, Any]], ma
 
 
 def select_top_k_kalshi(markets: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
-    # If the CSV lacks volume, default to original order; otherwise, prefer higher volume if present
+    # Deduplicate by title first (keep first occurrence)
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+    for m in markets:
+        t = (m.get('title') or '').strip().lower()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        deduped.append(m)
+    # If the CSV has volume/liquidity columns, sort by them
     key = None
-    if markets and 'volume' in markets[0]:
+    if deduped and 'volume' in deduped[0]:
         key = 'volume'
-    elif markets and 'liquidity' in markets[0]:
+    elif deduped and 'liquidity' in deduped[0]:
         key = 'liquidity'
     if key:
-        markets_sorted = sorted(markets, key=lambda m: float(m.get(key, 0) or 0), reverse=True)
-        return markets_sorted[:top_k]
-    logger.warning("No volume/liquidity in Kalshi CSV; using the first rows as top K.")
-    return markets[:top_k]
+        deduped = sorted(deduped, key=lambda m: float(m.get(key, 0) or 0), reverse=True)
+    else:
+        logger.warning("No volume/liquidity in Kalshi CSV; using input order after de-dup.")
+    return deduped[:top_k]
 
 
 def build_prompt(kalshi: Dict[str, Any], candidates: List[Dict[str, Any]]) -> str:
@@ -113,7 +122,6 @@ async def match_one(client: Any, model: str, kalshi: Dict[str, Any], candidates:
                 {"role": "system", "content": "You are a rigorous, concise market matcher."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.0,
             max_completion_tokens=200,
         )
         content = resp.choices[0].message.content or "{}"
