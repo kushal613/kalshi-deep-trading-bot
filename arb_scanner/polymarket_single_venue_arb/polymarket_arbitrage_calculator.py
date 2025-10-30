@@ -97,23 +97,26 @@ class PolymarketArbitrageCalculator:
         if not all([0 < yes_bid < 1, 0 < no_bid < 1, 0 < yes_ask < 1, 0 < no_ask < 1]):
             return None
         
-        # Calculate mid prices
+        # Compute buy-both using asks and sell-both using bids
+        buy_total = yes_ask + no_ask
+        buy_edge = 1.0 - buy_total
+        
+        sell_total = yes_bid + no_bid
+        sell_edge = 1.0 - sell_total
+        
+        chosen = None
+        if buy_edge > 0 and buy_edge >= self.min_edge_threshold:
+            chosen = ("buy_both", buy_total, buy_edge)
+        if sell_edge < 0 and abs(sell_edge) >= self.min_edge_threshold:
+            if chosen is None or abs(sell_edge) > abs(chosen[2]):
+                chosen = ("sell_both", sell_total, sell_edge)
+        if chosen is None:
+            return None
+        opportunity_type, total_price, edge = chosen
+        
+        # Mid prices for reporting
         yes_price = (yes_bid + yes_ask) / 2
         no_price = (no_bid + no_ask) / 2
-        
-        # Calculate total price and edge
-        total_price = yes_price + no_price
-        edge = 1.0 - total_price
-        
-        # Check if edge is significant enough
-        if abs(edge) < self.min_edge_threshold:
-            return None
-        
-        # Determine opportunity type
-        if edge > 0:
-            opportunity_type = "buy_both"  # Under-round: Yes + No < 1
-        else:
-            opportunity_type = "sell_both"  # Over-round: Yes + No > 1
         
         # Calculate financial metrics
         capital_required = total_price * self.position_size

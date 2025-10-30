@@ -64,6 +64,11 @@ class PolymarketMarketFetcher:
                     processed_market = self._process_market_data(market)
                     if processed_market:
                         processed_markets.append(processed_market)
+                # Best-effort: enrich a subset with live quotes to get real bids/asks
+                try:
+                    await self._attach_live_quotes(processed_markets[: min(50, len(processed_markets))])
+                except Exception:
+                    pass
                 
                 all_markets.extend(processed_markets)
                 logger.info(f"Page {page + 1}: {len(processed_markets)} markets (total: {len(all_markets)})")
@@ -83,6 +88,77 @@ class PolymarketMarketFetcher:
         
         logger.info(f"Fetched {len(all_markets)} active markets with price data")
         return all_markets
+
+    async def _attach_live_quotes(self, markets: List[Dict[str, Any]]) -> None:
+        """Attach best bid/ask for YES and derive NO via parity, best-effort."""
+        if not markets:
+            return
+        sem = asyncio.Semaphore(10)
+        async def fetch_one(m: Dict[str, Any]):
+            market_id = m.get("market_id")
+            if not market_id:
+                return
+            endpoints = [
+                f"https://clob.polymarket.com/book?market={market_id}",
+                f"https://clob.polymarket.com/markets/{market_id}/book",
+                f"https://clob.polymarket.com/prices?market={market_id}",
+            ]
+            best_bid = None
+            best_ask = None
+            async with sem:
+                for url in endpoints:
+                    try:
+                        resp = await self.http_client.get(url)
+                        if resp.status_code != 200:
+                            continue
+                        data = resp.json()
+                        # Try common book schema
+                        if isinstance(data, dict):
+                            bids = data.get("bids") or []
+                            asks = data.get("asks") or []
+                            if bids:
+                                try:
+                                    best_bid = max(float(b.get("price", 0)) for b in bids)
+                                except Exception:
+                                    pass
+                            if asks:
+                                try:
+                                    best_ask = min(float(a.get("price", 1)) for a in asks if a.get("price") is not None)
+                                except Exception:
+                                    pass
+                            if best_bid is None and "prices" in data:
+                                p = data.get("prices", {})
+                                y = p.get("YES") or p.get("Up")
+                                if isinstance(y, dict):
+                                    try:
+                                        best_bid = float(y.get("bid", 0)) or best_bid
+                                        best_ask = float(y.get("ask", 0)) or best_ask
+                                    except Exception:
+                                        pass
+                        elif isinstance(data, list) and data:
+                            # List of orders
+                            bids = [float(x.get("price", 0)) for x in data if str(x.get("side", "")).lower() == "bid"]
+                            asks = [float(x.get("price", 0)) for x in data if str(x.get("side", "")).lower() == "ask"]
+                            if bids:
+                                best_bid = max(bids)
+                            if asks:
+                                best_ask = min(asks)
+                        if best_bid is not None or best_ask is not None:
+                            break
+                    except Exception:
+                        continue
+            # Update market dict
+            if best_bid is not None and 0 < best_bid < 1:
+                m["yes_bid"] = best_bid
+            if best_ask is not None and 0 < best_ask < 1:
+                m["yes_ask"] = best_ask
+            # Derive NO side from parity
+            yb = m.get("yes_bid")
+            ya = m.get("yes_ask")
+            if isinstance(yb, (int, float)) and isinstance(ya, (int, float)):
+                m["no_bid"] = max(0.0, min(1.0, 1.0 - ya))
+                m["no_ask"] = max(0.0, min(1.0, 1.0 - yb))
+        await asyncio.gather(*(fetch_one(m) for m in markets), return_exceptions=True)
     
     async def _fetch_markets_page(self, page: int, limit: int) -> List[Dict[str, Any]]:
         """Fetch a single page of markets from Polymarket API."""
@@ -245,9 +321,31 @@ class PolymarketMarketFetcher:
             if not (0 < yes_price < 1 and 0 < no_price < 1):
                 return None
             
-            # Calculate mid prices (same as individual prices for Polymarket)
+            # Mid prices (from outcomes)
             yes_mid = yes_price
             no_mid = no_price
+
+            # Use best bid/ask for YES if available; derive NO from parity
+            raw_best_bid = market.get("bestBid")
+            raw_best_ask = market.get("bestAsk")
+            def _safe_float(x):
+                try:
+                    return float(x)
+                except Exception:
+                    return None
+            best_bid = _safe_float(raw_best_bid)
+            best_ask = _safe_float(raw_best_ask)
+            if best_bid is not None and 0 < best_bid < 1:
+                yes_bid = best_bid
+            else:
+                yes_bid = yes_mid
+            if best_ask is not None and 0 < best_ask < 1:
+                yes_ask = best_ask
+            else:
+                yes_ask = yes_mid
+            # Binary parity to approximate NO side
+            no_bid = max(0.0, min(1.0, 1.0 - yes_ask))
+            no_ask = max(0.0, min(1.0, 1.0 - yes_bid))
             
             # Calculate days to expiry
             days_to_expiry = self._calculate_days_to_expiry(end_date)
@@ -260,10 +358,10 @@ class PolymarketMarketFetcher:
                 "volume": volume,
                 "liquidity": liquidity,
                 "active": active,
-                "yes_bid": yes_mid,  # Polymarket doesn't have separate bid/ask
-                "no_bid": no_mid,
-                "yes_ask": yes_mid,
-                "no_ask": no_mid,
+                "yes_bid": yes_bid,
+                "no_bid": no_bid,
+                "yes_ask": yes_ask,
+                "no_ask": no_ask,
                 "yes_price": yes_mid,
                 "no_price": no_mid,
                 "days_to_expiry": days_to_expiry,
