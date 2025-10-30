@@ -22,6 +22,7 @@ class KalshiConfig(BaseModel):
         """Get the appropriate base URL based on environment."""
         if self.use_demo:
             return "https://demo-api.kalshi.co"
+        # Production Trade API base
         return "https://api.elections.kalshi.com"
     
     @validator('private_key')

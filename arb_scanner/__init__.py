@@ -6,3 +6,4 @@ Detects opportunities where Yes + No ≠ 1 and calculates potential profits.
 """
 
 __version__ = "1.0.0"
+
