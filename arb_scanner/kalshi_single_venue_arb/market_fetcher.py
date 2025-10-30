@@ -81,9 +81,6 @@ class MarketFetcher:
             if not self.client:
                 raise ValueError("Client not initialized")
                 
-            # Use the client's internal method to get headers
-            headers = await self.client._get_headers("GET", "/trade-api/v2/markets")
-            
             all_markets = []
             cursor = None
             page = 1
@@ -99,6 +96,10 @@ class MarketFetcher:
                         params["cursor"] = cursor
                     
                     logger.info(f"Fetching markets page {page}...")
+                    # Build signed path including query params (sorted)
+                    query = "&".join([f"{k}={params[k]}" for k in sorted(params.keys())])
+                    signed_path = f"/trade-api/v2/markets?{query}"
+                    headers = await self.client._get_headers("GET", signed_path)
                     response = await self.client.client.get(
                         "/trade-api/v2/markets",
                         headers=headers,

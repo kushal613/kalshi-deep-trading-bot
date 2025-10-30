@@ -192,12 +192,15 @@ class KalshiClient:
         
         while True:
             try:
-                headers = await self._get_headers("GET", "/trade-api/v2/events")
                 params = {
                     "limit": 100,  # Maximum events per page
                     "status": "open",  # Only get open events (active/tradeable)
                     "with_nested_markets": "true"
                 }
+                # Build canonical query string for signing
+                query = "&".join([f"{k}={params[k]}" for k in sorted(params.keys())])
+                signed_path = f"/trade-api/v2/events?{query}"
+                headers = await self._get_headers("GET", signed_path)
                 
                 if cursor:
                     params["cursor"] = cursor
@@ -245,11 +248,13 @@ class KalshiClient:
         
         # Fallback: fetch markets directly if needed
         try:
-            headers = await self._get_headers("GET", "/trade-api/v2/markets")
             params = {"event_ticker": event_ticker, "status": "open"}
             # Pass through server-side filter if available
             if self.max_close_ts is not None:
                 params["max_close_ts"] = self.max_close_ts
+            query = "&".join([f"{k}={params[k]}" for k in sorted(params.keys())])
+            signed_path = f"/trade-api/v2/markets?{query}"
+            headers = await self._get_headers("GET", signed_path)
             response = await self.client.get(
                 "/trade-api/v2/markets",
                 headers=headers,
