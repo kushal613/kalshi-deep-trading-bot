@@ -98,11 +98,11 @@ class ArbitrageCalculator:
         Returns:
             ArbitrageOpportunity object or None if no opportunity
         """
-        # Extract price data
-        yes_bid = float(market.get("yes_bid", 0))
-        no_bid = float(market.get("no_bid", 0))
-        yes_ask = float(market.get("yes_ask", 0))
-        no_ask = float(market.get("no_ask", 0))
+        # Extract price data (Kalshi returns prices in cents, convert to decimals)
+        yes_bid = float(market.get("yes_bid", 0)) / 100.0
+        no_bid = float(market.get("no_bid", 0)) / 100.0
+        yes_ask = float(market.get("yes_ask", 0)) / 100.0
+        no_ask = float(market.get("no_ask", 0)) / 100.0
         
         # Validate price data
         if not all([yes_bid > 0, no_bid > 0, yes_ask > 0, no_ask > 0]):
@@ -150,10 +150,10 @@ class ArbitrageCalculator:
             close_time=market.get("close_time", ""),
             strike_date=market.get("strike_date", ""),
             days_to_expiry=days_to_expiry,
-            yes_bid=yes_bid,
-            no_bid=no_bid,
-            yes_ask=yes_ask,
-            no_ask=no_ask,
+            yes_bid=yes_bid,  # Already converted to decimal
+            no_bid=no_bid,    # Already converted to decimal
+            yes_ask=yes_ask,  # Already converted to decimal
+            no_ask=no_ask,    # Already converted to decimal
             yes_price=yes_price,
             no_price=no_price,
             total_price=total_price,
@@ -197,8 +197,9 @@ class ArbitrageCalculator:
         """Calculate a simple liquidity score based on volume and spread."""
         try:
             volume = float(market.get("volume", 0))
-            yes_spread = float(market.get("yes_ask", 0)) - float(market.get("yes_bid", 0))
-            no_spread = float(market.get("no_ask", 0)) - float(market.get("no_bid", 0))
+            # Convert API values from cents to decimals for spread calculation
+            yes_spread = (float(market.get("yes_ask", 0)) - float(market.get("yes_bid", 0))) / 100.0
+            no_spread = (float(market.get("no_ask", 0)) - float(market.get("no_bid", 0))) / 100.0
             avg_spread = (yes_spread + no_spread) / 2
             
             # Higher volume and lower spread = better liquidity
