@@ -87,16 +87,21 @@ def select_top_k_kalshi(markets: List[Dict[str, Any]], top_k: int) -> List[Dict[
             continue
         seen.add(t)
         deduped.append(m)
-    # If the CSV has volume/liquidity columns, sort by them
-    key = None
-    if deduped and 'volume' in deduped[0]:
-        key = 'volume'
-    elif deduped and 'liquidity' in deduped[0]:
-        key = 'liquidity'
-    if key:
-        deduped = sorted(deduped, key=lambda m: float(m.get(key, 0) or 0), reverse=True)
+    # Prefer 24h volume if present, else fall back to lifetime volume, then liquidity
+    sort_keys = [
+        'volume_24h',
+        'volume',
+        'liquidity',
+    ]
+    chosen_key = next((k for k in sort_keys if deduped and k in deduped[0]), None)
+    if chosen_key:
+        deduped = sorted(
+            deduped,
+            key=lambda m: float(m.get(chosen_key, 0) or 0),
+            reverse=True,
+        )
     else:
-        logger.warning("No volume/liquidity in Kalshi CSV; using input order after de-dup.")
+        logger.warning("No volume_24h/volume/liquidity in Kalshi CSV; using input order after de-dup.")
     return deduped[:top_k]
 
 
@@ -116,14 +121,25 @@ def build_prompt(kalshi: Dict[str, Any], candidates: List[Dict[str, Any]]) -> st
 async def match_one(client: Any, model: str, kalshi: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Tuple[str, str, float]:
     prompt = build_prompt(kalshi, candidates)
     try:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a rigorous, concise market matcher."},
-                {"role": "user", "content": prompt},
-            ],
-            max_completion_tokens=200,
-        )
+        # Simple retry loop for transient network errors
+        last_exc = None
+        for _ in range(3):
+            try:
+                resp = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": "You are a rigorous, concise market matcher."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    response_format={"type": "json_object"},
+                    max_completion_tokens=200,
+                )
+                break
+            except Exception as e:
+                last_exc = e
+                await asyncio.sleep(0.25)
+        else:
+            raise last_exc or RuntimeError("OpenAI request failed")
         content = resp.choices[0].message.content or "{}"
         # Best-effort to parse JSON
         match_obj = {}
@@ -168,9 +184,13 @@ async def run(args):
 
     matches: List[Tuple[str, str, float]] = []
     tasks = []
+    # Allow overriding the OpenAI model via CLI
+    model = args.openai_model or getattr(cfg.openai, 'model', None)
+    if not model:
+        model = "gpt-4o-mini"
     for k in top_kalshi:
         candidates = pick_top_candidates(k['title'], poly_markets, args.candidates)
-        tasks.append(match_one(client, cfg.openai.model, k, candidates))
+        tasks.append(match_one(client, model, k, candidates))
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for r in results:
@@ -190,10 +210,11 @@ def main():
     parser = argparse.ArgumentParser(description="Kalshi ↔ Polymarket event matcher")
     parser.add_argument("--kalshi-csv", required=True, help="Path to kalshi_markets.csv")
     parser.add_argument("--polymarket-csv", required=True, help="Path to polymarket_markets.csv")
-    parser.add_argument("--output", default="outputs/matches.csv", help="Output CSV path")
-    parser.add_argument("--top-k", type=int, default=20, help="Num Kalshi markets to match")
+    parser.add_argument("--output", default="", help="Output CSV path; default uses timestamped filename")
+    parser.add_argument("--top-k", type=int, default=100, help="Num Kalshi markets to match (default 100)")
     parser.add_argument("--candidates", type=int, default=15, help="Num Polymarket candidates per Kalshi")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--openai-model", dest="openai_model", default="", help="Override OpenAI model (optional)")
     args = parser.parse_args()
 
     if args.verbose:
@@ -204,6 +225,11 @@ def main():
         logger.add(sys.stderr, level="INFO")
 
     try:
+        # Default timestamped output filename if not provided
+        if not args.output:
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
+            args.output = f"outputs/matches_{ts}.csv"
         asyncio.run(run(args))
     except KeyboardInterrupt:
         logger.info("Interrupted")

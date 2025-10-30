@@ -28,9 +28,17 @@ class PolymarketMarketFetcher:
     
     async def initialize(self):
         """Initialize the HTTP client."""
+        # Configure client with UA and sane timeouts; keep TLS verification on
+        import os
+        insecure = os.getenv("POLYMARKET_INSECURE", "false").lower() == "true"
         self.http_client = httpx.AsyncClient(
             base_url=self.config.base_url,
-            timeout=30.0
+            timeout=httpx.Timeout(20, connect=10, read=15),
+            headers={
+                "User-Agent": "kalshi-deep-trading-bot/arb-scanner (+https://github.com)",
+                "Accept": "application/json",
+            },
+            verify=not insecure,
         )
         logger.info("Initialized Polymarket market fetcher")
     
@@ -176,8 +184,14 @@ class PolymarketMarketFetcher:
         for endpoint in endpoints:
             try:
                 logger.debug(f"Trying endpoint: {endpoint}")
-                response = await self.http_client.get(endpoint)
-                response.raise_for_status()
+                # Basic retry loop for transient 5xx
+                for attempt in range(3):
+                    response = await self.http_client.get(endpoint)
+                    if response.status_code >= 500:
+                        await asyncio.sleep(0.3 * (attempt + 1))
+                        continue
+                    response.raise_for_status()
+                    break
                 
                 data = response.json()
                 
