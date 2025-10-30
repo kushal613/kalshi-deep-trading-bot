@@ -1,0 +1,2 @@
+ticker,title,event_ticker,event_title,category,close_time,strike_date,days_to_expiry,yes_bid,no_bid,yes_ask,no_ask,yes_price,no_price,total_price,edge,opportunity_type,capital_required,profit,roi_percent,annualized_roi_percent,min_spread,liquidity_score
+TEST-1,Test Market 1,EVENT-1,Test Event 1,Politics,2024-12-31T23:59:59Z,2024-12-31T23:59:59Z,30,0.45,0.5,0.47,0.52,0.46,0.51,0.97,0.03,buy_both,97.0,3.0,3.09,37.63,0.02,7.5
