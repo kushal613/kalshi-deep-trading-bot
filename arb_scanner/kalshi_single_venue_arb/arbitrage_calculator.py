@@ -108,25 +108,30 @@ class ArbitrageCalculator:
         if not all([yes_bid > 0, no_bid > 0, yes_ask > 0, no_ask > 0]):
             return None
         
-        # Calculate mid prices (average of bid and ask)
-        yes_price = (yes_bid + yes_ask) / 2
-        no_price = (no_bid + no_ask) / 2
-        total_price = yes_price + no_price
+        # Compute both buy-both (use asks) and sell-both (use bids) scenarios
+        buy_total = yes_ask + no_ask
+        buy_edge = 1.0 - buy_total  # positive if under-round
         
-        # Calculate edge
-        edge = 1.0 - total_price
+        sell_total = yes_bid + no_bid
+        sell_edge = 1.0 - sell_total  # negative if over-round
         
-        # Skip if edge is too small
-        if abs(edge) < self.minimum_edge:
+        # Decide the better actionable opportunity
+        chosen = None
+        if buy_edge > 0 and buy_edge >= self.minimum_edge:
+            chosen = ("buy_both", buy_total, buy_edge)
+        if sell_edge < 0 and abs(sell_edge) >= self.minimum_edge:
+            # If both exist, pick the one with larger absolute edge
+            if chosen is None or abs(sell_edge) > abs(chosen[2]):
+                chosen = ("sell_both", sell_total, sell_edge)
+        
+        if chosen is None:
             return None
         
-        # Determine opportunity type
-        if total_price < 1.0:
-            opportunity_type = "buy_both"
-        elif total_price > 1.0:
-            opportunity_type = "sell_both"
-        else:
-            return None  # No arbitrage opportunity
+        opportunity_type, total_price, edge = chosen
+        
+        # For reporting, also include mid prices for context
+        yes_price = (yes_bid + yes_ask) / 2
+        no_price = (no_bid + no_ask) / 2
         
         # Calculate financial metrics
         capital_required = total_price * self.position_size
